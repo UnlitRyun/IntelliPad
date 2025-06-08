@@ -160,7 +160,7 @@ void loadingAnim(const char *text, const int rotations, const int16_t cursorX, c
 void displayHome() {
     tft.fillScreen(ILI9341_BLACK);
     tft.setCursor(10, 10);
-    tft.println(" Ryun_PDA v0.3");
+    tft.println(" Horizonless_PDA v0.3");
     delay(200);
     tone(BUZZ_PIN,1200,200);
     tft.print(" . ");

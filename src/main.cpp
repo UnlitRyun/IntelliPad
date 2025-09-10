@@ -6,6 +6,7 @@
 #include <list>
 #include <RF24.h>
 #include <RF24Network.h>
+#include <cstring>
 
 //display
 #define TFT_DC 9
@@ -36,13 +37,16 @@ constexpr uint8_t CE_PIN = 22;
 constexpr uint8_t CSN_PIN = 19;
 RF24 radio (CE_PIN, CSN_PIN);
 RF24Network network(radio);
-const uint16_t myAddr = 00; //TODO: CHANGE FOR EACH ONE
+uint16_t myAddr = 00; //changes based on ADDR identifier switch
 const uint8_t networkChannel = 90; //not unique
 struct PingDataPackage {
-    uint32_t message_id;
-    float sensor_value; //todo: do I need this?
     char text_data[16];
 };
+
+//ADDR identifier switch
+constexpr int ADDR_SWITCH_1_PIN = 5;
+constexpr int ADDR_SWITCH_2_PIN = 6;
+constexpr int ADDR_SWITCH_3_PIN = 7;
 
 //etc global vars
 bool atHome = false; //if at home screen, for buttons
@@ -50,6 +54,7 @@ bool atArt = false; //if at art screen, for buttons
 bool artEnabled = false; //to enable touch screen art functions
 std::list<std::pair<int16_t,int16_t>> artStoredValues = {}; //saved positions for art
 
+#pragma region ButtomImages
 struct ButtonImage {
     int16_t textSize;
     int16_t x,y;
@@ -120,7 +125,9 @@ ButtonImage artButtonMini = {
     ILI9341_RED,
     161,220
 };
+#pragma endregion
 
+#pragma region Tools
 void drawButton(const ButtonImage &button, const std::string& text) {
     tft.fillRect(button.x,button.y,button.w,button.h,button.fillColor);
 
@@ -156,11 +163,12 @@ void loadingAnim(const char *text, const int rotations, const int16_t cursorX, c
     tft.setCursor(cursorX,cursorY);
     tft.print(text); //important to do it again to get cursor in correct spot bc the space
 }
+#pragma endregion
 
 void displayHome() {
     tft.fillScreen(ILI9341_BLACK);
     tft.setCursor(10, 10);
-    tft.println(" Horizonless_PDA v0.3");
+    tft.println(" ShoweryNewt_PDA v0.3");
     delay(200);
     tone(BUZZ_PIN,1200,200);
     tft.print(" . ");
@@ -199,6 +207,7 @@ void reset() {
     displayHome();
 }
 
+#pragma region Menus
 void unlockMenu() {
     atHome = false; //to change button behavior
     tone(BUZZ_PIN,1000,200);
@@ -214,25 +223,34 @@ void unlockMenu() {
 void pingMenu() {
     atHome = false; //to change button behavior
     tone(BUZZ_PIN,1000,200);
-    /*slow_print("\n Sending Message...", 30);
-    //radio
-    const char msg[] = "You Got Mail :O";
-    bool ok = radio.write(&msg, sizeof(msg));
-    tone(BUZZ_PIN,(ok ? (1200) : (600)),200);
-    if (ok)
-        slow_print("SUCCESS", 30);
-    else {
-        slow_print("FAILED", 30);
-        radio.printDetails();
-    }*/
     tft.fillScreen(ILI9341_BLACK);
     drawButton(pingButtonFull, "");
     tft.setTextColor(ILI9341_WHITE,ILI9341_BLACK);
-    loadingAnim("checking radio", 2, 88, 25);
-    loadingAnim("pinging devices", 8, 88, 50);
-    loadingAnim("processing", 2, 88, 75);
+    loadingAnim("waiting", 2, 88, 25);
+
+    //ping
+    PingDataPackage pingData;
+    strcpy(pingData.text_data, "IS PING :D");
+    RF24NetworkHeader header(00);
+    tft.setCursor(88,50);
+    if (network.write(header, &pingData, sizeof(pingData)))
+        tft.print("ping sent.");
+    else
+        tft.print("ping failed.");
+
     tft.setCursor(88,100);
-    tft.print("2 devices pinged");
+    delay(3000);
+    displayHome();
+}
+void recievePingMenu(PingDataPackage ping) {
+    atHome = false; //to change button behavior
+    tft.fillScreen(ILI9341_BLACK);
+    drawButton(pingButtonFull, "");
+    tft.setTextColor(ILI9341_WHITE,ILI9341_BLACK);
+    loadingAnim("RECIEVED PING PAYLOAD", 2, 88, 25);
+    tft.setCursor(88,50);
+    tft.print("MESSAGE: ");
+    slow_print(ping.text_data, 15);
     delay(3000);
     displayHome();
 }
@@ -270,9 +288,16 @@ void clearArt() {
     drawButton(pingButtonMini, "");
     drawButton(artButtonMini, "Back");
 }
+#pragma endregion
 
 void setup() {
     Serial.begin(9600);
+    pinMode(TFT_CS, OUTPUT);
+    pinMode(TOUCH_CS, OUTPUT);
+    pinMode(CSN_PIN, OUTPUT);
+    digitalWrite(TFT_CS, HIGH);
+    digitalWrite(TOUCH_CS, HIGH);
+    digitalWrite(CSN_PIN, HIGH);
 
     tft.begin();
     tft.setRotation(1);
@@ -293,15 +318,19 @@ void setup() {
     debouncer_2.interval(5);
     debouncer_3.interval(5);
 
+    //ADDR SWITCHES
+    pinMode(ADDR_SWITCH_1_PIN, INPUT_PULLUP);
+    pinMode(ADDR_SWITCH_2_PIN, INPUT_PULLUP);
+    pinMode(ADDR_SWITCH_3_PIN, INPUT_PULLUP);
+
     //buzzer
     pinMode(BUZZ_PIN, OUTPUT);
 
-    //radio todo: add serial debug
+    //radio
     SPI.begin();
     radio.begin();
     radio.setPALevel(RF24_PA_LOW);
-    radio.setDataRate(RF24_250KBPS);
-    network.begin(networkChannel, myAddr);
+    radio.setDataRate(RF24_1MBPS);
 
     //initialize touch screen
     if (ts.begin())
@@ -313,13 +342,55 @@ void setup() {
     tft.setTextColor(ILI9341_WHITE,ILI9341_BLACK);
     tft.fillScreen(ILI9341_BLACK);
     loadingAnim("Initializing...", 4, 60,100);
+
+    //ADDR SWITCHES
+    int state1 = !digitalRead(ADDR_SWITCH_1_PIN);
+    int state2 = !digitalRead(ADDR_SWITCH_2_PIN);
+    int state3 = !digitalRead(ADDR_SWITCH_3_PIN);
+    myAddr = (state3 << 2) | (state2 << 1) | (state1 << 0);
+    tft.setCursor(10,220);
+    tft.print("PDA_");
+    tft.print(myAddr);
+
+    network.begin(networkChannel, myAddr); //start network
+    radio.printDetails();
+
+    loadingAnim("Initializing...", 2, 60,100);
     displayHome();
 }
 
 unsigned long lastTouchTime = 0;
 constexpr unsigned long debounceDelay = 5;
 
+int thinkingAnimStep = 0;
+unsigned long thinkingAnimMillis = 0;
+const long thinkingAnimInterval = 300;
 void loop() {
+    //keep network running
+    network.update();
+
+    //radio
+    while (network.available()) {
+        tone(BUZZ_PIN,200,500);
+        RF24NetworkHeader header;
+        PingDataPackage recievePayload;
+
+        // Read the incoming message
+        network.read(header, &recievePayload, sizeof(recievePayload));
+        recievePingMenu(recievePayload);
+    }
+
+    //thinking anim
+    /*unsigned long currentThinkingAnimMillis = millis();
+    tft.fillRect(275,200,20,45, ILI9341_BLACK);
+    if (thinkingAnimStep == 1)
+        tft.fillRect(275,200,20,10, ILI9341_GREEN);
+    if (thinkingAnimStep == 2)
+        tft.fillRect(275,215,20,10, ILI9341_GREEN);
+    if (thinkingAnimStep == 3)
+        tft.fillRect(275,230,20,10, ILI9341_GREEN);
+    thinkingAnimStep++;*/
+
     //buttons
     debouncer_1.update();
     debouncer_2.update();

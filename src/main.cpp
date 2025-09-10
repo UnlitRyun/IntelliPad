@@ -37,16 +37,11 @@ constexpr uint8_t CE_PIN = 22;
 constexpr uint8_t CSN_PIN = 19;
 RF24 radio (CE_PIN, CSN_PIN);
 RF24Network network(radio);
-uint16_t myAddr = 00; //changes based on ADDR identifier switch
+uint16_t myAddr = 03; //CHANGE FOR EACH DEVICE
 const uint8_t networkChannel = 90; //not unique
 struct PingDataPackage {
     char text_data[16];
 };
-
-//ADDR identifier switch
-constexpr int ADDR_SWITCH_1_PIN = 5;
-constexpr int ADDR_SWITCH_2_PIN = 6;
-constexpr int ADDR_SWITCH_3_PIN = 7;
 
 //etc global vars
 bool atHome = false; //if at home screen, for buttons
@@ -318,11 +313,6 @@ void setup() {
     debouncer_2.interval(5);
     debouncer_3.interval(5);
 
-    //ADDR SWITCHES
-    pinMode(ADDR_SWITCH_1_PIN, INPUT_PULLUP);
-    pinMode(ADDR_SWITCH_2_PIN, INPUT_PULLUP);
-    pinMode(ADDR_SWITCH_3_PIN, INPUT_PULLUP);
-
     //buzzer
     pinMode(BUZZ_PIN, OUTPUT);
 
@@ -343,11 +333,6 @@ void setup() {
     tft.fillScreen(ILI9341_BLACK);
     loadingAnim("Initializing...", 4, 60,100);
 
-    //ADDR SWITCHES
-    int state1 = !digitalRead(ADDR_SWITCH_1_PIN);
-    int state2 = !digitalRead(ADDR_SWITCH_2_PIN);
-    int state3 = !digitalRead(ADDR_SWITCH_3_PIN);
-    myAddr = (state3 << 2) | (state2 << 1) | (state1 << 0);
     tft.setCursor(10,220);
     tft.print("PDA_");
     tft.print(myAddr);

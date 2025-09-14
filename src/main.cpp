@@ -37,17 +37,23 @@ constexpr uint8_t CE_PIN = 22;
 constexpr uint8_t CSN_PIN = 19;
 RF24 radio (CE_PIN, CSN_PIN);
 RF24Network network(radio);
-uint16_t myAddr = 03; //CHANGE FOR EACH DEVICE
-const uint8_t networkChannel = 90; //not unique
+uint16_t myAddr = 0; //CHANGE FOR EACH DEVICE, ALWAYS HAS TO HAVE 0 ACTIVATE
+const uint8_t networkChannel = 88; //not unique
+
+const uint8_t PING_MESSAGE_TYPE = 'P';
+const uint8_t DRAW_DOT_MESSAGE_TYPE = 'D';
 struct PingDataPackage {
-    char text_data[16];
+};
+struct DrawDotDataPackage {
+    int16_t x,y;
 };
 
 //etc global vars
 bool atHome = false; //if at home screen, for buttons
 bool atArt = false; //if at art screen, for buttons
 bool artEnabled = false; //to enable touch screen art functions
-std::list<std::pair<int16_t,int16_t>> artStoredValues = {}; //saved positions for art
+std::list<std::pair<int16_t,int16_t>> artMyValues = {}; //saved positions for art
+std::list<std::pair<int16_t,int16_t>> artRadioValues = {}; //saved positions for art
 
 #pragma region ButtomImages
 struct ButtonImage {
@@ -158,12 +164,22 @@ void loadingAnim(const char *text, const int rotations, const int16_t cursorX, c
     tft.setCursor(cursorX,cursorY);
     tft.print(text); //important to do it again to get cursor in correct spot bc the space
 }
+
+void PdaNumPrint(uint16_t bgColor = ILI9341_BLACK) {
+    tft.setTextColor(ILI9341_WHITE,bgColor);
+    tft.setCursor(250,220);
+    tft.print("PDA_");
+    tft.print(myAddr);
+    tft.setTextColor(ILI9341_WHITE,ILI9341_BLACK);
+}
 #pragma endregion
 
-void displayHome() {
+void displayHome(bool firstTime = false) {
     tft.fillScreen(ILI9341_BLACK);
+    PdaNumPrint();
+
     tft.setCursor(10, 10);
-    tft.println(" ShoweryNewt_PDA v0.3");
+    tft.println(" ShoweryNewt_PDA v0.4");
     delay(200);
     tone(BUZZ_PIN,1200,200);
     tft.print(" . ");
@@ -198,6 +214,7 @@ void reset() {
     artEnabled = false;
     tft.setTextColor(ILI9341_WHITE,ILI9341_BLACK);
     tft.fillScreen(ILI9341_BLACK);
+    PdaNumPrint();
     loadingAnim("Resetting... ", 2, 75,100);
     displayHome();
 }
@@ -207,6 +224,7 @@ void unlockMenu() {
     atHome = false; //to change button behavior
     tone(BUZZ_PIN,1000,200);
     tft.fillScreen(ILI9341_BLACK);
+    PdaNumPrint();
     drawButton(unlockButtonFull, "");
     tft.setTextColor(ILI9341_WHITE,ILI9341_BLACK);
     loadingAnim("not implemented", 0, 88, 25);
@@ -219,33 +237,47 @@ void pingMenu() {
     atHome = false; //to change button behavior
     tone(BUZZ_PIN,1000,200);
     tft.fillScreen(ILI9341_BLACK);
+    PdaNumPrint();
     drawButton(pingButtonFull, "");
     tft.setTextColor(ILI9341_WHITE,ILI9341_BLACK);
     loadingAnim("waiting", 2, 88, 25);
 
     //ping
+    tft.setCursor(88,25);
+    tft.print("pinging...");
     PingDataPackage pingData;
-    strcpy(pingData.text_data, "IS PING :D");
-    RF24NetworkHeader header(00);
-    tft.setCursor(88,50);
-    if (network.write(header, &pingData, sizeof(pingData)))
-        tft.print("ping sent.");
-    else
-        tft.print("ping failed.");
+    uint16_t numReplies = 0;
+    for (int i = 0; i < 6; ++i) {
+        if (i == myAddr)
+            continue;
+        RF24NetworkHeader header(i, PING_MESSAGE_TYPE);
+        tft.setCursor(88,50);
+        if (network.write(header, &pingData, sizeof(pingData))) {
+            tft.print(("PDA_" + std::to_string(i) + " Replied    ").c_str());
+            numReplies++;
+        }
+        else
+            tft.print(("PDA_" + std::to_string(i) + " No Response").c_str());
+        delay(300);
+    }
+    tft.setCursor(88,75);
+    slow_print("Pinged " + std::to_string(numReplies) + " devices.",15);
 
     tft.setCursor(88,100);
     delay(3000);
     displayHome();
 }
-void recievePingMenu(PingDataPackage ping) {
+void recievePingMenu(PingDataPackage ping, uint16_t from_node) {
     atHome = false; //to change button behavior
     tft.fillScreen(ILI9341_BLACK);
+    PdaNumPrint();
     drawButton(pingButtonFull, "");
     tft.setTextColor(ILI9341_WHITE,ILI9341_BLACK);
-    loadingAnim("RECIEVED PING PAYLOAD", 2, 88, 25);
+    tone(BUZZ_PIN,1500,400);
+    tft.setCursor(88,25);
+    slow_print("ping recieved", 15);
     tft.setCursor(88,50);
-    tft.print("MESSAGE: ");
-    slow_print(ping.text_data, 15);
+    slow_print("from ADDR" + std::to_string(from_node), 15);
     delay(3000);
     displayHome();
 }
@@ -254,17 +286,25 @@ void artMenu() {
     atHome = false; //to change button behavior
     tone(BUZZ_PIN,1000,200);
     tft.fillScreen(ILI9341_BLACK);
+    PdaNumPrint();
     drawButton(artButtonFull, "");
     tft.setTextColor(ILI9341_WHITE,ILI9341_BLACK);
-    loadingAnim("connecting", 4, 88, 25);
+    tft.setCursor(88,25);
+    slow_print("connecting..", 15);
+    delay(500);
     tft.fillScreen(ILI9341_BLACK);
+    PdaNumPrint();
 
     artEnabled = true;
     tft.fillScreen(ILI9341_DARKGREY);
+    PdaNumPrint(ILI9341_DARKGREY);
 
     //load saved art
-    for (std::pair<int16_t,int16_t> value : artStoredValues) {
+    for (std::pair<int16_t,int16_t> value : artMyValues) {
         tft.fillCircle(value.first, value.second, 3, ILI9341_BLUE);
+    }
+    for (std::pair<int16_t,int16_t> value : artRadioValues) {
+        tft.fillCircle(value.first, value.second, 3, ILI9341_RED);
     }
 
     //draw buttons
@@ -276,8 +316,9 @@ void artMenu() {
 }
 void clearArt() {
     tone(BUZZ_PIN,400,600);
-    artStoredValues.clear();
+    artMyValues.clear();
     tft.fillScreen(ILI9341_DARKGREY);
+    PdaNumPrint(ILI9341_DARKGREY);
     //draw buttons
     drawButton(unlockButtonMini, "Clear");
     drawButton(pingButtonMini, "");
@@ -319,7 +360,7 @@ void setup() {
     //radio
     SPI.begin();
     radio.begin();
-    radio.setPALevel(RF24_PA_LOW);
+    radio.setPALevel(RF24_PA_HIGH);
     radio.setDataRate(RF24_1MBPS);
 
     //initialize touch screen
@@ -331,17 +372,14 @@ void setup() {
     delay(300);
     tft.setTextColor(ILI9341_WHITE,ILI9341_BLACK);
     tft.fillScreen(ILI9341_BLACK);
-    loadingAnim("Initializing...", 4, 60,100);
-
-    tft.setCursor(10,220);
-    tft.print("PDA_");
-    tft.print(myAddr);
+    PdaNumPrint();
+    loadingAnim("Initializing...", 2, 60,100);
 
     network.begin(networkChannel, myAddr); //start network
     radio.printDetails();
 
     loadingAnim("Initializing...", 2, 60,100);
-    displayHome();
+    displayHome(true);
 }
 
 unsigned long lastTouchTime = 0;
@@ -355,14 +393,29 @@ void loop() {
     network.update();
 
     //radio
-    while (network.available()) {
-        tone(BUZZ_PIN,200,500);
+    if (network.available()) {
         RF24NetworkHeader header;
-        PingDataPackage recievePayload;
+        network.peek(header);
 
-        // Read the incoming message
-        network.read(header, &recievePayload, sizeof(recievePayload));
-        recievePingMenu(recievePayload);
+        switch (header.type) {
+            case PING_MESSAGE_TYPE: {
+                PingDataPackage recievePayload;
+                network.read(header, &recievePayload, sizeof(recievePayload));
+                recievePingMenu(recievePayload, header.from_node);
+                break;
+            }
+            case DRAW_DOT_MESSAGE_TYPE: {
+                DrawDotDataPackage recievePayload;
+                network.read(header, &recievePayload, sizeof(recievePayload));
+                if (artEnabled) {
+                    tft.fillCircle(recievePayload.x, recievePayload.y, 3, ILI9341_RED);
+                }
+                artRadioValues.emplace_back(recievePayload.x,recievePayload.y); //save value
+                break;
+            }
+            default:
+                break;
+        }
     }
 
     //thinking anim
@@ -417,9 +470,17 @@ void loop() {
                 const auto x = static_cast<int16_t>(map(p.x, 3900, 414, 0, tft.width()));
                 const auto y = static_cast<int16_t>(map(p.y, 3630, 449, 0, tft.height()));
 
-                artStoredValues.emplace_back(x,y); //save value
+                artMyValues.emplace_back(x,y); //save value
 
                 tft.fillCircle(x, y, 3, ILI9341_BLUE);
+
+                /*//send radio
+                DrawDotDataPackage DrawDotData;
+                DrawDotData.x = x;
+                DrawDotData.y = y;
+                RF24NetworkHeader header(00, DRAW_DOT_MESSAGE_TYPE);
+                tft.setCursor(88,50);
+                network.multicast(header, &DrawDotData, sizeof(DrawDotData), 2);*/
             }
         }
     }

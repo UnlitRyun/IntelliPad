@@ -22,9 +22,9 @@ XPT2046_Touchscreen ts(TOUCH_CS, TOUCH_IRQ);
 bool tsSuccess = false;
 
 //buttons
-constexpr int BTN_1_PIN = 24;
+constexpr int BTN_1_PIN = 29;
 constexpr int BTN_2_PIN = 28;
-constexpr int BTN_3_PIN = 29;
+constexpr int BTN_3_PIN = 24;
 Bounce debouncer_1;
 Bounce debouncer_2;
 Bounce debouncer_3;
@@ -179,7 +179,7 @@ void displayHome(bool firstTime = false) {
     PdaNumPrint();
 
     tft.setCursor(10, 10);
-    tft.println(" ShoweryNewt_PDA v0.4");
+    tft.println(" ShoweryNewt-PDA v0.4");
     delay(200);
     tone(BUZZ_PIN,1200,200);
     tft.print(" . ");
